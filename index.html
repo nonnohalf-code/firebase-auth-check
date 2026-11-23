@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Firebase接続テスト</title>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+</head>
+<body>
+  <h2>Firebaseアクセス権限テスト</h2>
+  <p>保護者アカウントでログインして確認します。</p>
+
+  <label>メールアドレス</label><br>
+  <input id="email" type="email" autocomplete="username"><br><br>
+
+  <label>パスワード</label><br>
+  <input id="password" type="password" autocomplete="current-password"><br><br>
+
+  <button id="start">テスト開始</button>
+  <pre id="result">待機中です。</pre>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyA-E-l3MgQRQOO56aC2381uM1szBwvKnqI",
+  authDomain: "family-study-app-e21e5.firebaseapp.com",
+  projectId: "family-study-app-e21e5",
+  storageBucket: "family-study-app-e21e5.firebasestorage.app",
+  messagingSenderId: "159850449391",
+  appId: "1:159850449391:web:bba5ef410bd22efea60e1a"
+};
+
+firebase.initializeApp(firebaseConfig);
+
+const auth = firebase.auth();
+const db = firebase.firestore();
+const output = document.getElementById("result");
+
+function log(message) {
+  output.textContent += "\n" + message;
+}
+
+document.getElementById("start").onclick = async () => {
+  const email = document.getElementById("email").value;
+  const password = document.getElementById("password").value;
+
+  output.textContent = "Firebase接続を開始します。";
+
+  try {
+    log("1. 認証処理中...");
+
+    await auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
+    const credential = await auth.signInWithEmailAndPassword(email, password);
+    const uid = credential.user.uid;
+
+    log("ログイン成功");
+    document.getElementById("password").value = "";
+
+    log("2. 保護者自身のユーザー情報を確認...");
+    const ownDoc = await db.collection("users").doc(uid).get();
+
+    if (ownDoc.exists && ownDoc.data().role === "parent") {
+      log("合格：保護者自身の情報を取得できました。");
+    } else {
+      log("確認要：保護者情報またはroleを確認してください。");
+    }
+
+    log("3. users一覧の取得を確認...");
+    try {
+      await db.collection("users").limit(1).get();
+      log("要確認：一覧取得が許可されました。");
+    } catch (e) {
+      if (e.code === "permission-denied") {
+        log("合格：一覧取得は拒否されました。");
+      } else {
+        throw e;
+      }
+    }
+
+    log("4. ログアウト後のアクセスを確認...");
+    await auth.signOut();
+
+    try {
+      await db.collection("users").doc(uid).get();
+      log("要確認：未ログインでの取得が許可されました。");
+    } catch (e) {
+      if (e.code === "permission-denied") {
+        log("合格：未ログインでの取得は拒否されました。");
+      } else {
+        throw e;
+      }
+    }
+
+    log("テスト終了");
+  } catch (e) {
+    log("エラー：" + e.message);
+    log("エラーコード：" + (e.code || "不明"));
+    try { await auth.signOut(); } catch (_) {}
+  }
+};
+</script>
+</body>
+</html>
