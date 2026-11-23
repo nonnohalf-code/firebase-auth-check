@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Firebaseアクセス権限テスト</title>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;max-width:720px;margin:24px auto;padding:0 16px;line-height:1.6;color:#222}
+h1{font-size:1.35rem}label{display:block;margin-top:14px;font-weight:600}
+input{box-sizing:border-box;width:100%;padding:12px;margin-top:5px;font-size:16px;border:1px solid #aaa;border-radius:8px}
+button{margin-top:18px;padding:12px 18px;font-size:16px;border:0;border-radius:8px;background:#185abc;color:white}
+#log{white-space:pre-wrap;background:#f4f5f7;padding:14px;border-radius:8px;margin-top:18px;min-height:100px}
+.note{font-size:.9rem;color:#555}
+</style>
+</head>
+<body>
+<h1>Firebaseアクセス権限テスト（STEP 16-8）</h1>
+<p class="note">保護者が自分の情報と、指定した2人の生徒情報を個別に取得できるか確認します。入力したパスワードやUIDはこのページから送信・保存されません。</p>
+<label>保護者メールアドレス</label>
+<input id="email" type="email" autocomplete="username">
+<label>保護者パスワード</label>
+<input id="password" type="password" autocomplete="current-password">
+<label>中学1年生のUID</label>
+<input id="middleUid" type="text" autocomplete="off">
+<label>高校2年生のUID</label>
+<input id="highUid" type="text" autocomplete="off">
+<button id="start">テスト開始</button>
+<div id="log">テスト待機中です。</div>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "family-study-app-e21e5.firebaseapp.com",
+  projectId: "family-study-app-e21e5",
+  storageBucket: "family-study-app-e21e5.firebasestorage.app",
+  messagingSenderId: "159850449391",
+  appId: "1:159850449391:web:bba5ef410bd22efea60e1a"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+auth.setPersistence(firebase.auth.Auth.Persistence.NONE);
+const logEl = document.getElementById("log");
+function log(s){logEl.textContent += "\n" + s;}
+function pass(s){log("合格：" + s);}
+function fail(s){log("要確認：" + s);}
+async function getDoc(uid){
+  return await db.collection("users").doc(uid).get();
+}
+document.getElementById("start").addEventListener("click", async () => {
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+  const middleUid = document.getElementById("middleUid").value.trim();
+  const highUid = document.getElementById("highUid").value.trim();
+  logEl.textContent = "Firebase接続を開始します。";
+  document.getElementById("start").disabled = true;
+  try {
+    if (!email || !password || !middleUid || !highUid) {
+      log("メール、パスワード、中1 UID、高2 UIDをすべて入力してください。");
+      return;
+    }
+    log("1. 保護者の認証処理中...");
+    const credential = await auth.signInWithEmailAndPassword(email,password);
+    document.getElementById("password").value = "";
+    const parentUid = credential.user.uid;
+    log("ログイン成功");
+    log("2. 保護者自身のユーザー情報を確認...");
+    const parentDoc = await getDoc(parentUid);
+    if (parentDoc.exists && parentDoc.data().role === "parent") pass("保護者自身の情報を取得でき、role=parentです。");
+    else fail("保護者ドキュメントが存在しないか、roleがparentではありません。");
+    log("3. 中学1年生のユーザー情報を確認...");
+    const middleDoc = await getDoc(middleUid);
+    if (middleDoc.exists && middleDoc.data().role === "student" && middleDoc.data().gradeCode === "J1" && middleDoc.data().parentUid === parentUid)
+      pass("中学1年生の情報を取得でき、role・gradeCode・parentUidも一致しました。");
+    else if (middleDoc.exists) fail("中学1年生の情報は取得できましたが、登録内容が想定と異なります。");
+    else fail("中学1年生のドキュメントが存在しません。");
+    log("4. 高校2年生のユーザー情報を確認...");
+    const highDoc = await getDoc(highUid);
+    if (highDoc.exists && highDoc.data().role === "student" && highDoc.data().gradeCode === "H2" && highDoc.data().parentUid === parentUid)
+      pass("高校2年生の情報を取得でき、role・gradeCode・parentUidも一致しました。");
+    else if (highDoc.exists) fail("高校2年生の情報は取得できましたが、登録内容が想定と異なります。");
+    else fail("高校2年生のドキュメントが存在しません。");
+    log("5. users一覧の取得を確認...");
+    try {
+      await db.collection("users").limit(1).get();
+      fail("users一覧を取得できてしまいました。ルールを再確認してください。");
+    } catch(e) {
+      if (e.code === "permission-denied") pass("一覧取得は拒否されました。");
+      else fail("一覧取得時に想定外のエラー：" + e.code);
+    }
+    log("6. ログアウト後のアクセスを確認...");
+    await auth.signOut();
+    try {
+      await getDoc(parentUid);
+      fail("未ログインで情報を取得できてしまいました。");
+    } catch(e) {
+      if (e.code === "permission-denied") pass("未ログインでの取得は拒否されました。");
+      else fail("未ログイン時に想定外のエラー：" + e.code);
+    }
+    log("テスト終了");
+  } catch(e) {
+    log("エラー：" + (e.code || "") + " " + e.message);
+    try { await auth.signOut(); } catch(_) {}
+  } finally {
+    document.getElementById("start").disabled = false;
+  }
+});
+</script>
+</body>
+</html>
